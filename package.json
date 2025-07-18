@@ -9,7 +9,9 @@
     "build": "tsc",
     "test": "jest",
     "lint": "eslint src --ext .ts,.js",
-    "lint:fix": "eslint src --ext .ts,.js --fix"
+    "lint:fix": "eslint src --ext .ts,.js --fix",
+    "example": "ts-node src/example.ts",
+    "cli": "ts-node src/cli.ts"
   },
   "keywords": [
     "mcp-tool",
