@@ -72,8 +72,58 @@ export class EmergentMemoryArchitecture {
     const thought = await this.randomGenerator.createRandomThought();
     if (thought) {
       this.storage.storeRandomThought(thought);
+      
+      // Log to centralized thought stream
+      this.logThoughtToCentralStream(thought);
     }
     return thought;
+  }
+  
+  /**
+   * Log thought to centralized stream for monitoring
+   */
+  private logThoughtToCentralStream(thought: RandomThought): void {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const logPath = path.join(process.env.HOME || '.', '.ai-thoughts', 'thought-stream.json');
+      
+      // Ensure directory exists
+      const dir = path.dirname(logPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      // Load or create log
+      let log: any = { thoughts: [], startTime: new Date(), lastUpdated: new Date() };
+      if (fs.existsSync(logPath)) {
+        try {
+          log = JSON.parse(fs.readFileSync(logPath, 'utf-8'));
+        } catch (e) {
+          // Use default if parse fails
+        }
+      }
+      
+      // Add thought
+      log.thoughts.push({
+        id: thought.id,
+        type: 'random',
+        content: thought.generated,
+        timestamp: thought.timestamp,
+        metadata: {
+          seeds: thought.seeds,
+          source: 'ema',
+          ledToInsight: thought.ledToInsight
+        }
+      });
+      log.lastUpdated = new Date();
+      
+      // Save
+      fs.writeFileSync(logPath, JSON.stringify(log, null, 2));
+    } catch (e) {
+      // Silently fail - logging is non-critical
+      console.error('Failed to log thought to central stream:', e);
+    }
   }
   
   /**
