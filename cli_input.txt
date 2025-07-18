@@ -1,0 +1,11 @@
+-e thought
+stats
+store
+Consciousness is the dance between memory and randomness
+human
+1.0
+search
+memory
+random
+stats
+quit
