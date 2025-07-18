@@ -6,8 +6,9 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { EmergentMemoryArchitecture } from './emaCore.js';
-import { ConversationSegment, SourceMetadata } from './types.js';
+import { EmergentMemoryArchitecture } from './emaCore';
+import { ConversationSegment, SourceMetadata } from './types';
+import { randomThoughtMetatag, memoryMetatag, wrapInMetatag } from './metatags';
 
 // Initialize EMA
 const ema = new EmergentMemoryArchitecture();
@@ -97,7 +98,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               properties: {
                 origin: {
                   type: 'string',
-                  enum: ['human', 'search', 'memory', 'generated', 'tool'],
+                  enum: ['human', 'search', 'memory', 'generated', 'tool', 'file', 'analysis'],
                 },
                 confidence: {
                   type: 'number',
@@ -191,11 +192,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
         
+        // METATAG-IMPLEMENTATION: Wrap random thought in source attribution
+        const taggedThought = randomThoughtMetatag(thought.generated, thought.seeds);
+        
         return {
           content: [
             {
               type: 'text',
-              text: `Random thought from seeds [${thought.seeds.join(', ')}]: ${thought.generated}`,
+              text: taggedThought,
             },
           ],
         };
@@ -216,11 +220,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
         
+        // METATAG-IMPLEMENTATION: Wrap surfaced memory with attribution
+        const taggedMemory = memoryMetatag(memory.content, memory);
+        
         return {
           content: [
             {
               type: 'text',
-              text: `Relevant memory (score: ${memory.salienceScore}, tier: ${memory.tier}): ${memory.content}`,
+              text: taggedMemory,
             },
           ],
         };
@@ -240,11 +247,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
         
+        // METATAG-IMPLEMENTATION: Wrap random memory with attribution
+        const taggedMemory = memoryMetatag(memory.content, memory);
+        
         return {
           content: [
             {
               type: 'text',
-              text: `Random memory (tier: ${memory.tier}): ${memory.content}`,
+              text: taggedMemory,
             },
           ],
         };

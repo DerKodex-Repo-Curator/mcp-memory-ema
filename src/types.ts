@@ -1,7 +1,7 @@
 // types.ts - Core types for the Emergent Memory Architecture
 
 export interface SourceMetadata {
-  origin: 'human' | 'search' | 'memory' | 'generated' | 'tool';
+  origin: 'human' | 'search' | 'memory' | 'generated' | 'tool' | 'file' | 'analysis';
   confidence: number; // 0.0 - 1.0
   timestamp: string; // ISO-8601
   verification?: 'verified' | 'unverified' | 'partial';
