@@ -69,7 +69,11 @@ export class EmergentMemoryArchitecture {
     // Check probability
     if (Math.random() > this.config.randomThought.injectionProbability) return null;
     
-    return await this.randomGenerator.createRandomThought();
+    const thought = await this.randomGenerator.createRandomThought();
+    if (thought) {
+      this.storage.storeRandomThought(thought);
+    }
+    return thought;
   }
   
   /**
@@ -220,12 +224,11 @@ export class EmergentMemoryArchitecture {
     byTier: { echo: number; working: number; permanent: number };
     averageSalience: number;
   } {
-    // This would query the database for stats
-    // For now, return a placeholder
+    const stats = this.storage.getStats();
     return {
-      totalMemories: 0,
-      byTier: { echo: 0, working: 0, permanent: 0 },
-      averageSalience: 0
+      totalMemories: stats.totalMemories,
+      byTier: stats.byTier,
+      averageSalience: stats.averageSalience
     };
   }
   

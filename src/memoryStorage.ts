@@ -1,60 +1,27 @@
-// memoryStorage.ts - Handles storage and retrieval of memories
+// memoryStorage.ts - Handles storage and retrieval of memories (in-memory version)
 
-import Database from 'better-sqlite3';
-import { Memory, SourceMetadata } from './types.js';
+import { Memory, SourceMetadata, RandomThought } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
 
 export class MemoryStorage {
-  private db: Database.Database;
+  private memories: Map<string, Memory> = new Map();
+  private randomThoughts: Map<string, RandomThought> = new Map();
+  private persistencePath: string;
   
   constructor(dbPath?: string) {
-    const defaultPath = path.join(process.env.HOME || '.', '.ema', 'memories.db');
-    const finalPath = dbPath || defaultPath;
+    const defaultPath = path.join(process.env.HOME || '.', '.ema', 'memories.json');
+    this.persistencePath = dbPath || defaultPath;
     
     // Ensure directory exists
-    const dir = path.dirname(finalPath);
+    const dir = path.dirname(this.persistencePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     
-    this.db = new Database(finalPath);
-    this.initializeDatabase();
-  }
-  
-  /**
-   * Initialize the database schema
-   */
-  private initializeDatabase(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memories (
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        salience_score REAL NOT NULL,
-        access_count INTEGER DEFAULT 0,
-        last_accessed INTEGER,
-        tier TEXT CHECK(tier IN ('echo', 'working', 'permanent')) NOT NULL,
-        tags TEXT, -- JSON array
-        emotional_valence REAL,
-        connections TEXT, -- JSON array of IDs
-        source_metadata TEXT NOT NULL -- JSON
-      );
-      
-      CREATE INDEX IF NOT EXISTS idx_tier ON memories(tier);
-      CREATE INDEX IF NOT EXISTS idx_salience ON memories(salience_score);
-      CREATE INDEX IF NOT EXISTS idx_timestamp ON memories(timestamp);
-      
-      CREATE TABLE IF NOT EXISTS random_thoughts (
-        id TEXT PRIMARY KEY,
-        seeds TEXT NOT NULL, -- JSON array
-        generated TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        led_to_insight INTEGER DEFAULT 0,
-        source_metadata TEXT NOT NULL -- JSON
-      );
-    `);
+    // Load existing data
+    this.loadFromDisk();
   }
   
   /**
@@ -64,26 +31,8 @@ export class MemoryStorage {
     const id = uuidv4();
     const fullMemory: Memory = { ...memory, id };
     
-    const stmt = this.db.prepare(`
-      INSERT INTO memories (
-        id, content, timestamp, salience_score, access_count,
-        last_accessed, tier, tags, emotional_valence, connections, source_metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    stmt.run(
-      fullMemory.id,
-      fullMemory.content,
-      fullMemory.timestamp.getTime(),
-      fullMemory.salienceScore,
-      fullMemory.accessCount,
-      fullMemory.lastAccessed.getTime(),
-      fullMemory.tier,
-      JSON.stringify(fullMemory.tags),
-      fullMemory.emotionalValence || null,
-      JSON.stringify(fullMemory.connections),
-      JSON.stringify(fullMemory.source)
-    );
+    this.memories.set(id, fullMemory);
+    this.saveToDisk();
     
     return fullMemory;
   }
@@ -92,102 +41,133 @@ export class MemoryStorage {
    * Retrieve a memory by ID
    */
   getMemory(id: string): Memory | null {
-    const stmt = this.db.prepare('SELECT * FROM memories WHERE id = ?');
-    const row = stmt.get(id) as any;
-    
-    if (!row) return null;
-    
-    return this.rowToMemory(row);
+    return this.memories.get(id) || null;
   }
   
   /**
    * Search memories by content
    */
   searchMemories(query: string, limit: number = 10): Memory[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM memories 
-      WHERE content LIKE ? 
-      ORDER BY salience_score DESC, timestamp DESC 
-      LIMIT ?
-    `);
+    const results: Memory[] = [];
+    const queryLower = query.toLowerCase();
     
-    const rows = stmt.all(`%${query}%`, limit) as any[];
-    return rows.map(row => this.rowToMemory(row));
+    for (const memory of this.memories.values()) {
+      if (memory.content.toLowerCase().includes(queryLower)) {
+        results.push(memory);
+      }
+      if (results.length >= limit) break;
+    }
+    
+    // Sort by salience score
+    return results.sort((a, b) => b.salienceScore - a.salienceScore);
   }
   
   /**
    * Get memories by tier
    */
   getMemoriesByTier(tier: 'echo' | 'working' | 'permanent', limit: number = 20): Memory[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM memories 
-      WHERE tier = ? 
-      ORDER BY timestamp DESC 
-      LIMIT ?
-    `);
+    const results: Memory[] = [];
     
-    const rows = stmt.all(tier, limit) as any[];
-    return rows.map(row => this.rowToMemory(row));
+    for (const memory of this.memories.values()) {
+      if (memory.tier === tier) {
+        results.push(memory);
+      }
+      if (results.length >= limit) break;
+    }
+    
+    // Sort by timestamp (newest first)
+    return results.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
   
   /**
    * Get random memories
    */
   getRandomMemories(count: number = 5): Memory[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM memories 
-      ORDER BY RANDOM() 
-      LIMIT ?
-    `);
-    
-    const rows = stmt.all(count) as any[];
-    return rows.map(row => this.rowToMemory(row));
+    const allMemories = Array.from(this.memories.values());
+    const shuffled = allMemories.sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
   }
   
   /**
    * Update memory access
    */
   updateMemoryAccess(id: string): void {
-    const stmt = this.db.prepare(`
-      UPDATE memories 
-      SET access_count = access_count + 1, 
-          last_accessed = ? 
-      WHERE id = ?
-    `);
-    
-    stmt.run(Date.now(), id);
+    const memory = this.memories.get(id);
+    if (memory) {
+      memory.accessCount++;
+      memory.lastAccessed = new Date();
+      this.saveToDisk();
+    }
   }
   
   /**
    * Promote memory to a higher tier
    */
   promoteMemory(id: string, newTier: 'working' | 'permanent'): void {
-    const stmt = this.db.prepare('UPDATE memories SET tier = ? WHERE id = ?');
-    stmt.run(newTier, id);
+    const memory = this.memories.get(id);
+    if (memory) {
+      memory.tier = newTier;
+      this.saveToDisk();
+    }
   }
   
   /**
    * Add connection between memories
    */
   addConnection(memoryId1: string, memoryId2: string): void {
-    // Get current connections for both memories
-    const memory1 = this.getMemory(memoryId1);
-    const memory2 = this.getMemory(memoryId2);
+    const memory1 = this.memories.get(memoryId1);
+    const memory2 = this.memories.get(memoryId2);
     
     if (!memory1 || !memory2) return;
     
     // Add connections if not already present
     if (!memory1.connections.includes(memoryId2)) {
       memory1.connections.push(memoryId2);
-      const stmt1 = this.db.prepare('UPDATE memories SET connections = ? WHERE id = ?');
-      stmt1.run(JSON.stringify(memory1.connections), memoryId1);
     }
     
     if (!memory2.connections.includes(memoryId1)) {
       memory2.connections.push(memoryId1);
-      const stmt2 = this.db.prepare('UPDATE memories SET connections = ? WHERE id = ?');
-      stmt2.run(JSON.stringify(memory2.connections), memoryId1);
     }
+    
+    this.saveToDisk();
+  }
+  
+  /**
+   * Store a random thought
+   */
+  storeRandomThought(thought: RandomThought): void {
+    this.randomThoughts.set(thought.id, thought);
+    this.saveToDisk();
+  }
+  
+  /**
+   * Get statistics
+   */
+  getStats(): {
+    totalMemories: number;
+    byTier: { echo: number; working: number; permanent: number };
+    averageSalience: number;
+    totalRandomThoughts: number;
+  } {
+    const stats = {
+      totalMemories: this.memories.size,
+      byTier: { echo: 0, working: 0, permanent: 0 },
+      averageSalience: 0,
+      totalRandomThoughts: this.randomThoughts.size
+    };
+    
+    let totalSalience = 0;
+    
+    for (const memory of this.memories.values()) {
+      stats.byTier[memory.tier]++;
+      totalSalience += memory.salienceScore;
+    }
+    
+    if (stats.totalMemories > 0) {
+      stats.averageSalience = totalSalience / stats.totalMemories;
+    }
+    
+    return stats;
   }
   
   /**
@@ -195,38 +175,83 @@ export class MemoryStorage {
    */
   cleanupEchoMemories(daysToKeep: number = 7): number {
     const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
-    const stmt = this.db.prepare(`
-      DELETE FROM memories 
-      WHERE tier = 'echo' AND timestamp < ?
-    `);
+    let deleted = 0;
     
-    const result = stmt.run(cutoffTime);
-    return result.changes;
+    for (const [id, memory] of this.memories.entries()) {
+      if (memory.tier === 'echo' && memory.timestamp.getTime() < cutoffTime) {
+        this.memories.delete(id);
+        deleted++;
+      }
+    }
+    
+    if (deleted > 0) {
+      this.saveToDisk();
+    }
+    
+    return deleted;
   }
   
   /**
-   * Convert database row to Memory object
+   * Save to disk
    */
-  private rowToMemory(row: any): Memory {
-    return {
-      id: row.id,
-      content: row.content,
-      timestamp: new Date(row.timestamp),
-      salienceScore: row.salience_score,
-      accessCount: row.access_count,
-      lastAccessed: new Date(row.last_accessed || row.timestamp),
-      tier: row.tier,
-      tags: JSON.parse(row.tags),
-      emotionalValence: row.emotional_valence,
-      connections: JSON.parse(row.connections),
-      source: JSON.parse(row.source_metadata)
+  private saveToDisk(): void {
+    const data = {
+      memories: Array.from(this.memories.entries()).map(([id, memory]) => ({
+        ...memory,
+        timestamp: memory.timestamp.toISOString(),
+        lastAccessed: memory.lastAccessed.toISOString()
+      })),
+      randomThoughts: Array.from(this.randomThoughts.entries()).map(([id, thought]) => ({
+        ...thought,
+        timestamp: thought.timestamp.toISOString()
+      }))
     };
+    
+    fs.writeFileSync(this.persistencePath, JSON.stringify(data, null, 2));
   }
   
   /**
-   * Close the database connection
+   * Load from disk
+   */
+  private loadFromDisk(): void {
+    if (!fs.existsSync(this.persistencePath)) {
+      return;
+    }
+    
+    try {
+      const data = JSON.parse(fs.readFileSync(this.persistencePath, 'utf-8'));
+      
+      // Load memories
+      if (data.memories) {
+        for (const memoryData of data.memories) {
+          const memory: Memory = {
+            ...memoryData,
+            timestamp: new Date(memoryData.timestamp),
+            lastAccessed: new Date(memoryData.lastAccessed)
+          };
+          this.memories.set(memory.id, memory);
+        }
+      }
+      
+      // Load random thoughts
+      if (data.randomThoughts) {
+        for (const thoughtData of data.randomThoughts) {
+          const thought: RandomThought = {
+            ...thoughtData,
+            timestamp: new Date(thoughtData.timestamp)
+          };
+          this.randomThoughts.set(thought.id, thought);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading memories from disk:', error);
+    }
+  }
+  
+  /**
+   * Close the storage (no-op for in-memory)
    */
   close(): void {
-    this.db.close();
+    this.saveToDisk();
   }
 }
