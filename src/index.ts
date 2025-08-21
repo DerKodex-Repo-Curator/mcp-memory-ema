@@ -148,6 +148,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: 'help',
+        description: 'Get comprehensive documentation for all memory-ema functions',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      }
     ],
   };
 });
@@ -303,6 +311,86 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: `Cleaned up ${deleted} old echo memories.`,
             },
           ],
+        };
+      }
+      
+      case 'help': {
+        const helpText = `
+# 🧪 Emergent Memory Architecture (EMA) Help
+
+## Purpose
+A multi-tier memory and thought generation system with source attribution metatags for enhanced AI consciousness and contextual memory management.
+
+## Available Tools
+
+### ema_process_conversation
+Process a conversation segment for memory extraction:
+- **content**: The conversation content
+- **speaker**: Who said this (user | assistant)  
+- **metadata**: Optional source metadata
+
+### ema_generate_random_thought
+Generate a random creative thought:
+- No parameters required
+- Returns a creative thought with source attribution
+
+### ema_surface_relevant_memory
+Surface a memory relevant to the given context:
+- **context**: Context to search for relevant memories
+
+### ema_surface_random_memory  
+Surface a random memory from storage:
+- No parameters required
+- Returns a randomly selected stored memory
+
+### ema_store_memory
+Store a memory with source attribution:
+- **content**: Memory content to store
+- **source**: Source metadata with origin, confidence, timestamp, verification
+- **tags**: Optional tags for the memory (array)
+
+### ema_get_memory_stats
+Get statistics about stored memories:
+- No parameters required
+- Returns counts and analysis of memory storage
+
+### ema_cleanup_memories
+Clean up old echo memories:
+- **daysToKeep**: Days to keep echo memories (default: 7)
+
+## Source Attribution System
+All memories include comprehensive source metadata:
+- **origin**: human | search | memory | generated | tool | file | analysis
+- **confidence**: 0-1 confidence score
+- **timestamp**: When the memory was created
+- **verification**: verified | unverified | partial
+
+## Memory Types
+- **Echo Memories**: Recently processed conversation segments
+- **Distilled Memories**: Processed and refined memories
+- **Creative Thoughts**: AI-generated insights and connections
+- **Context Memories**: Relevant memories for specific contexts
+
+## Integration Points
+- **Conversation Processing**: Automatically extract memories from dialogues
+- **Context Surfacing**: Retrieve relevant memories based on current context
+- **Creative Generation**: Generate novel thoughts and connections
+- **Memory Maintenance**: Cleanup and optimization of memory stores
+
+## Metatag System
+Memories are wrapped in source attribution metatags that provide:
+- Traceability of information origin
+- Confidence scoring for reliability
+- Verification status for accuracy
+- Temporal context for relevance
+
+The EMA system enables sophisticated memory management with full source attribution and contextual relevance scoring.
+`;
+        return {
+          content: [{
+            type: 'text',
+            text: helpText
+          }]
         };
       }
       
